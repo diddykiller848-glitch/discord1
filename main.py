@@ -28,9 +28,14 @@ CHECK_DELAY = float(os.getenv('CHECK_DELAY', '7.5'))  # 8 usernames per minute
 MIN_LENGTH = int(os.getenv('MIN_LENGTH', '3'))
 MAX_LENGTH = int(os.getenv('MAX_LENGTH', '6'))
 RESULTS_DIR = os.getenv('RESULTS_DIR', './results')
+GEN_COUNT = int(os.getenv('GEN_COUNT', '8'))  # How many usernames to generate per check
 
 # Create results directory if it doesn't exist
 os.makedirs(RESULTS_DIR, exist_ok=True)
+
+# Global variable to track if generation is running
+generation_running = False
+generation_task = None
 
 class UsernameChecker:
     """Handles username generation and checking across platforms"""
@@ -60,7 +65,7 @@ class UsernameChecker:
                 f'https://discord.com/api/v10/users/search?q={username}',
                 timeout=aiohttp.ClientTimeout(total=5)
             ) as resp:
-                return resp.status != 429  # Rate limited = might be available
+                return resp.status != 429
         except:
             return None
     
@@ -71,7 +76,7 @@ class UsernameChecker:
                 f'https://api.twitch.tv/kraken/users/{username}',
                 timeout=aiohttp.ClientTimeout(total=5)
             ) as resp:
-                return resp.status == 404  # 404 means available
+                return resp.status == 404
         except:
             return None
     
@@ -140,7 +145,7 @@ class UsernameChecker:
 checker = UsernameChecker()
 
 async def check_usernames(platform, length=None, ctx=None):
-    """Check 8 usernames per check with proper rate limiting"""
+    """Check usernames with proper rate limiting"""
     
     if length:
         try:
@@ -166,7 +171,7 @@ async def check_usernames(platform, length=None, ctx=None):
         return None, "Invalid platform"
     
     check_func = platform_map[platform]
-    usernames = [checker.generate_username(length) for _ in range(8)]
+    usernames = [checker.generate_username(length) for _ in range(GEN_COUNT)]
     results = {'available': [], 'taken': [], 'error': []}
     
     # Create embed for live updates
@@ -178,7 +183,7 @@ async def check_usernames(platform, length=None, ctx=None):
         )
         msg = await ctx.send(embed=embed)
     
-    # Check each username with delay (8 per minute)
+    # Check each username with delay
     for i, username in enumerate(usernames):
         try:
             is_available = await check_func(username)
@@ -195,14 +200,14 @@ async def check_usernames(platform, length=None, ctx=None):
             
             # Update embed
             if ctx and i % 2 == 0:
-                progress = f"{i+1}/8 checked"
+                progress = f"{i+1}/{GEN_COUNT} checked"
                 embed.description = progress
                 try:
                     await msg.edit(embed=embed)
                 except:
                     pass
             
-            # Rate limiting: 7.5 second delay = 8 per minute
+            # Rate limiting
             if i < len(usernames) - 1:
                 await asyncio.sleep(CHECK_DELAY)
         
@@ -226,6 +231,98 @@ async def on_ready():
     logger.info(f'✅ Bot logged in as {bot.user}')
     print(f'✅ Bot is running!')
 
+# GENSTART COMMAND - Continuous Generation
+@bot.command(name='genstart')
+async def gen_start(ctx, platform, length=None):
+    """Start continuous username generation: .genstart <platform> [length]"""
+    global generation_running, generation_task
+    
+    if generation_running:
+        await ctx.send("❌ Generation is already running! Use `.genstop` to stop.")
+        return
+    
+    valid_platforms = ['discord', 'instagram', 'tiktok', 'snapchat', 'roblox', 'facebook']
+    if platform.lower() not in valid_platforms:
+        await ctx.send(f"❌ Invalid platform! Choose from: {', '.join(valid_platforms)}")
+        return
+    
+    if length:
+        try:
+            length = int(length)
+            if length < MIN_LENGTH or length > MAX_LENGTH:
+                await ctx.send(f"❌ Length must be between {MIN_LENGTH}-{MAX_LENGTH}")
+                return
+        except:
+            await ctx.send("❌ Invalid length format")
+            return
+    
+    generation_running = True
+    embed = discord.Embed(
+        title=f"🚀 Starting Continuous {platform.upper()} Generation",
+        description="Generating usernames continuously...",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="Platform", value=platform.upper(), inline=True)
+    embed.add_field(name="Length", value=length or "Random (3-6)", inline=True)
+    embed.set_footer(text="Use .genstop to stop generation")
+    
+    await ctx.send(embed=embed)
+    
+    count = 0
+    check_count = 0
+    
+    try:
+        while generation_running:
+            results, filename = await check_usernames(platform, length, None)
+            
+            if results is None:
+                await ctx.send(f"❌ Error: {filename}")
+                break
+            
+            count += 1
+            check_count += len(results['available'])
+            
+            available_list = '\n'.join(results['available']) or "None"
+            
+            # Send results every batch
+            embed = discord.Embed(
+                title=f"✅ Batch #{count} - {platform.upper()} Usernames Found",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="🟢 Available Usernames", value=f"```{available_list}```", inline=False)
+            embed.add_field(name="📊 Batch Stats", value=f"Available: {len(results['available'])}/{GEN_COUNT}", inline=True)
+            embed.add_field(name="📈 Total Found", value=f"{check_count} usernames", inline=True)
+            embed.set_footer(text=f"Saved to: {os.path.basename(filename)}")
+            
+            await ctx.send(embed=embed)
+            
+            # Wait before next batch
+            await asyncio.sleep(5)
+    
+    except Exception as e:
+        logger.error(f"Error in generation loop: {e}")
+        await ctx.send(f"❌ Error during generation: {e}")
+    finally:
+        generation_running = False
+
+@bot.command(name='genstop')
+async def gen_stop(ctx):
+    """Stop continuous username generation"""
+    global generation_running
+    
+    if not generation_running:
+        await ctx.send("❌ No generation is currently running!")
+        return
+    
+    generation_running = False
+    embed = discord.Embed(
+        title="⛔ Generation Stopped",
+        description="Continuous username generation has been stopped.",
+        color=discord.Color.red()
+    )
+    await ctx.send(embed=embed)
+
+# SINGLE CHECK COMMANDS
 @bot.command(name='gen')
 async def discord_gen(ctx, length=None):
     """Check Discord usernames: .gen [length]"""
@@ -244,7 +341,7 @@ async def discord_gen(ctx, length=None):
         )
         embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
         embed.add_field(name="🔴 Taken", value=f"```{taken_list}```", inline=False)
-        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/8", inline=True)
+        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/{GEN_COUNT}", inline=True)
         embed.set_footer(text=f"Saved to: {os.path.basename(filename)}")
         
         await ctx.send(embed=embed)
@@ -265,7 +362,7 @@ async def instagram_gen(ctx, length=None):
             color=discord.Color.from_rgb(229, 45, 168)
         )
         embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
-        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/8", inline=True)
+        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/{GEN_COUNT}", inline=True)
         embed.set_footer(text=f"Saved to: {os.path.basename(filename)}")
         
         await ctx.send(embed=embed)
@@ -286,7 +383,7 @@ async def tiktok_gen(ctx, length=None):
             color=discord.Color.from_rgb(0, 0, 0)
         )
         embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
-        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/8", inline=True)
+        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/{GEN_COUNT}", inline=True)
         embed.set_footer(text=f"Saved to: {os.path.basename(filename)}")
         
         await ctx.send(embed=embed)
@@ -307,7 +404,7 @@ async def snapchat_gen(ctx, length=None):
             color=discord.Color.from_rgb(255, 252, 0)
         )
         embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
-        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/8", inline=True)
+        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/{GEN_COUNT}", inline=True)
         embed.set_footer(text=f"Saved to: {os.path.basename(filename)}")
         
         await ctx.send(embed=embed)
@@ -328,7 +425,7 @@ async def roblox_gen(ctx, length=None):
             color=discord.Color.from_rgb(235, 24, 24)
         )
         embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
-        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/8", inline=True)
+        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/{GEN_COUNT}", inline=True)
         embed.set_footer(text=f"Saved to: {os.path.basename(filename)}")
         
         await ctx.send(embed=embed)
@@ -349,7 +446,7 @@ async def facebook_gen(ctx, length=None):
             color=discord.Color.from_rgb(59, 89, 152)
         )
         embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
-        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/8", inline=True)
+        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/{GEN_COUNT}", inline=True)
         embed.set_footer(text=f"Saved to: {os.path.basename(filename)}")
         
         await ctx.send(embed=embed)
@@ -362,13 +459,22 @@ async def help_command(ctx):
         description="Check username availability across platforms",
         color=discord.Color.gold()
     )
-    embed.add_field(name=".gen [length]", value="Check Discord usernames", inline=False)
-    embed.add_field(name=".igen [length]", value="Check Instagram usernames", inline=False)
-    embed.add_field(name=".tgen [length]", value="Check TikTok usernames", inline=False)
-    embed.add_field(name=".sgen [length]", value="Check Snapchat usernames", inline=False)
-    embed.add_field(name=".rgen [length]", value="Check Roblox usernames", inline=False)
-    embed.add_field(name=".fgen [length]", value="Check Facebook usernames", inline=False)
-    embed.set_footer(text="Optional: [length] = 3-6 (default: random)")
+    
+    # Single Check Commands
+    embed.add_field(name="🔍 Single Checks", value="Check once and get results", inline=False)
+    embed.add_field(name=".gen [length]", value="Discord usernames", inline=False)
+    embed.add_field(name=".igen [length]", value="Instagram usernames", inline=False)
+    embed.add_field(name=".tgen [length]", value="TikTok usernames", inline=False)
+    embed.add_field(name=".sgen [length]", value="Snapchat usernames", inline=False)
+    embed.add_field(name=".rgen [length]", value="Roblox usernames", inline=False)
+    embed.add_field(name=".fgen [length]", value="Facebook usernames", inline=False)
+    
+    # Continuous Generation
+    embed.add_field(name="🚀 Continuous Generation", value="Keep checking until you stop", inline=False)
+    embed.add_field(name=".genstart <platform> [length]", value="Start continuous generation", inline=False)
+    embed.add_field(name=".genstop", value="Stop continuous generation", inline=False)
+    
+    embed.set_footer(text="[length] = 3-6 characters (optional, defaults to random)")
     
     await ctx.send(embed=embed)
 
