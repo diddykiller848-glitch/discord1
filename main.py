@@ -28,14 +28,13 @@ CHECK_DELAY = float(os.getenv('CHECK_DELAY', '7.5'))  # 8 usernames per minute
 MIN_LENGTH = int(os.getenv('MIN_LENGTH', '3'))
 MAX_LENGTH = int(os.getenv('MAX_LENGTH', '6'))
 RESULTS_DIR = os.getenv('RESULTS_DIR', './results')
-GEN_COUNT = int(os.getenv('GEN_COUNT', '8'))  # How many usernames to generate per check
+GEN_COUNT = int(os.getenv('GEN_COUNT', '8'))  # How many usernames to generate per batch
 
 # Create results directory if it doesn't exist
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # Global variable to track if generation is running
 generation_running = False
-generation_task = None
 
 class UsernameChecker:
     """Handles username generation and checking across platforms"""
@@ -144,18 +143,11 @@ class UsernameChecker:
 
 checker = UsernameChecker()
 
-async def check_usernames(platform, length=None, ctx=None):
-    """Check usernames with proper rate limiting"""
+async def check_usernames(platform, ctx=None):
+    """Check usernames with proper rate limiting - AUTO generates random length 3-6"""
     
-    if length:
-        try:
-            length = int(length)
-            if length < MIN_LENGTH or length > MAX_LENGTH:
-                return None, f"Length must be between {MIN_LENGTH}-{MAX_LENGTH}"
-        except:
-            return None, "Invalid length format"
-    else:
-        length = random.randint(MIN_LENGTH, MAX_LENGTH)
+    # Randomly generate length between MIN and MAX
+    length = random.randint(MIN_LENGTH, MAX_LENGTH)
     
     # Platform check functions mapping
     platform_map = {
@@ -222,7 +214,7 @@ async def check_usernames(platform, length=None, ctx=None):
     with open(filename, 'w') as f:
         json.dump(results, f, indent=2)
     
-    return results, filename
+    return results, filename, length
 
 @bot.event
 async def on_ready():
@@ -231,11 +223,12 @@ async def on_ready():
     logger.info(f'✅ Bot logged in as {bot.user}')
     print(f'✅ Bot is running!')
 
-# GENSTART COMMAND - Continuous Generation
+# GENSTART COMMAND - Continuous Generation (Auto generates all lengths 3-6)
 @bot.command(name='genstart')
-async def gen_start(ctx, platform, length=None):
-    """Start continuous username generation: .genstart <platform> [length]"""
-    global generation_running, generation_task
+async def gen_start(ctx, platform):
+    """Start continuous username generation: .genstart <platform>
+    Automatically generates random length usernames (3-6 letters)"""
+    global generation_running
     
     if generation_running:
         await ctx.send("❌ Generation is already running! Use `.genstop` to stop.")
@@ -246,24 +239,14 @@ async def gen_start(ctx, platform, length=None):
         await ctx.send(f"❌ Invalid platform! Choose from: {', '.join(valid_platforms)}")
         return
     
-    if length:
-        try:
-            length = int(length)
-            if length < MIN_LENGTH or length > MAX_LENGTH:
-                await ctx.send(f"❌ Length must be between {MIN_LENGTH}-{MAX_LENGTH}")
-                return
-        except:
-            await ctx.send("❌ Invalid length format")
-            return
-    
     generation_running = True
     embed = discord.Embed(
         title=f"🚀 Starting Continuous {platform.upper()} Generation",
-        description="Generating usernames continuously...",
+        description="Generating random usernames (3-6 letters) continuously...",
         color=discord.Color.green()
     )
     embed.add_field(name="Platform", value=platform.upper(), inline=True)
-    embed.add_field(name="Length", value=length or "Random (3-6)", inline=True)
+    embed.add_field(name="Length", value="Random (3-6 letters)", inline=True)
     embed.set_footer(text="Use .genstop to stop generation")
     
     await ctx.send(embed=embed)
@@ -273,7 +256,7 @@ async def gen_start(ctx, platform, length=None):
     
     try:
         while generation_running:
-            results, filename = await check_usernames(platform, length, None)
+            results, filename, length = await check_usernames(platform, None)
             
             if results is None:
                 await ctx.send(f"❌ Error: {filename}")
@@ -286,13 +269,13 @@ async def gen_start(ctx, platform, length=None):
             
             # Send results every batch
             embed = discord.Embed(
-                title=f"✅ Batch #{count} - {platform.upper()} Usernames Found",
+                title=f"✅ Batch #{count} - {platform.upper()} ({length} letters)",
                 color=discord.Color.green()
             )
             embed.add_field(name="🟢 Available Usernames", value=f"```{available_list}```", inline=False)
             embed.add_field(name="📊 Batch Stats", value=f"Available: {len(results['available'])}/{GEN_COUNT}", inline=True)
             embed.add_field(name="📈 Total Found", value=f"{check_count} usernames", inline=True)
-            embed.set_footer(text=f"Saved to: {os.path.basename(filename)}")
+            embed.set_footer(text=f"Saved: {os.path.basename(filename)}")
             
             await ctx.send(embed=embed)
             
@@ -322,12 +305,13 @@ async def gen_stop(ctx):
     )
     await ctx.send(embed=embed)
 
-# SINGLE CHECK COMMANDS
+# SINGLE CHECK COMMANDS - Auto generates random 3-6 length
 @bot.command(name='gen')
-async def discord_gen(ctx, length=None):
-    """Check Discord usernames: .gen [length]"""
+async def discord_gen(ctx):
+    """Check Discord usernames: .gen
+    Automatically generates random length (3-6 letters)"""
     async with ctx.typing():
-        results, filename = await check_usernames('discord', length, ctx)
+        results, filename, length = await check_usernames('discord', ctx)
         if results is None:
             await ctx.send(f"❌ Error: {filename}")
             return
@@ -336,7 +320,7 @@ async def discord_gen(ctx, length=None):
         taken_list = '\n'.join(results['taken'][:3]) or "None"
         
         embed = discord.Embed(
-            title="✅ Discord Username Check Complete",
+            title=f"✅ Discord Username Check Complete ({length} letters)",
             color=discord.Color.green()
         )
         embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
@@ -347,10 +331,11 @@ async def discord_gen(ctx, length=None):
         await ctx.send(embed=embed)
 
 @bot.command(name='igen')
-async def instagram_gen(ctx, length=None):
-    """Check Instagram usernames: .igen [length]"""
+async def instagram_gen(ctx):
+    """Check Instagram usernames: .igen
+    Automatically generates random length (3-6 letters)"""
     async with ctx.typing():
-        results, filename = await check_usernames('instagram', length, ctx)
+        results, filename, length = await check_usernames('instagram', ctx)
         if results is None:
             await ctx.send(f"❌ Error: {filename}")
             return
@@ -358,7 +343,7 @@ async def instagram_gen(ctx, length=None):
         available_list = '\n'.join(results['available']) or "None"
         
         embed = discord.Embed(
-            title="📸 Instagram Username Check Complete",
+            title=f"📸 Instagram Username Check Complete ({length} letters)",
             color=discord.Color.from_rgb(229, 45, 168)
         )
         embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
@@ -368,10 +353,11 @@ async def instagram_gen(ctx, length=None):
         await ctx.send(embed=embed)
 
 @bot.command(name='tgen')
-async def tiktok_gen(ctx, length=None):
-    """Check TikTok usernames: .tgen [length]"""
+async def tiktok_gen(ctx):
+    """Check TikTok usernames: .tgen
+    Automatically generates random length (3-6 letters)"""
     async with ctx.typing():
-        results, filename = await check_usernames('tiktok', length, ctx)
+        results, filename, length = await check_usernames('tiktok', ctx)
         if results is None:
             await ctx.send(f"❌ Error: {filename}")
             return
@@ -379,7 +365,7 @@ async def tiktok_gen(ctx, length=None):
         available_list = '\n'.join(results['available']) or "None"
         
         embed = discord.Embed(
-            title="🎵 TikTok Username Check Complete",
+            title=f"🎵 TikTok Username Check Complete ({length} letters)",
             color=discord.Color.from_rgb(0, 0, 0)
         )
         embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
@@ -389,10 +375,11 @@ async def tiktok_gen(ctx, length=None):
         await ctx.send(embed=embed)
 
 @bot.command(name='sgen')
-async def snapchat_gen(ctx, length=None):
-    """Check Snapchat usernames: .sgen [length]"""
+async def snapchat_gen(ctx):
+    """Check Snapchat usernames: .sgen
+    Automatically generates random length (3-6 letters)"""
     async with ctx.typing():
-        results, filename = await check_usernames('snapchat', length, ctx)
+        results, filename, length = await check_usernames('snapchat', ctx)
         if results is None:
             await ctx.send(f"❌ Error: {filename}")
             return
@@ -400,7 +387,7 @@ async def snapchat_gen(ctx, length=None):
         available_list = '\n'.join(results['available']) or "None"
         
         embed = discord.Embed(
-            title="👻 Snapchat Username Check Complete",
+            title=f"👻 Snapchat Username Check Complete ({length} letters)",
             color=discord.Color.from_rgb(255, 252, 0)
         )
         embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
@@ -410,10 +397,11 @@ async def snapchat_gen(ctx, length=None):
         await ctx.send(embed=embed)
 
 @bot.command(name='rgen')
-async def roblox_gen(ctx, length=None):
-    """Check Roblox usernames: .rgen [length]"""
+async def roblox_gen(ctx):
+    """Check Roblox usernames: .rgen
+    Automatically generates random length (3-6 letters)"""
     async with ctx.typing():
-        results, filename = await check_usernames('roblox', length, ctx)
+        results, filename, length = await check_usernames('roblox', ctx)
         if results is None:
             await ctx.send(f"❌ Error: {filename}")
             return
@@ -421,7 +409,7 @@ async def roblox_gen(ctx, length=None):
         available_list = '\n'.join(results['available']) or "None"
         
         embed = discord.Embed(
-            title="🎮 Roblox Username Check Complete",
+            title=f"🎮 Roblox Username Check Complete ({length} letters)",
             color=discord.Color.from_rgb(235, 24, 24)
         )
         embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
@@ -431,10 +419,11 @@ async def roblox_gen(ctx, length=None):
         await ctx.send(embed=embed)
 
 @bot.command(name='fgen')
-async def facebook_gen(ctx, length=None):
-    """Check Facebook usernames: .fgen [length]"""
+async def facebook_gen(ctx):
+    """Check Facebook usernames: .fgen
+    Automatically generates random length (3-6 letters)"""
     async with ctx.typing():
-        results, filename = await check_usernames('facebook', length, ctx)
+        results, filename, length = await check_usernames('facebook', ctx)
         if results is None:
             await ctx.send(f"❌ Error: {filename}")
             return
@@ -442,7 +431,7 @@ async def facebook_gen(ctx, length=None):
         available_list = '\n'.join(results['available']) or "None"
         
         embed = discord.Embed(
-            title="f Facebook Username Check Complete",
+            title=f"f Facebook Username Check Complete ({length} letters)",
             color=discord.Color.from_rgb(59, 89, 152)
         )
         embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
@@ -456,25 +445,26 @@ async def help_command(ctx):
     """Show all available commands"""
     embed = discord.Embed(
         title="📋 Username Checker Bot Commands",
-        description="Check username availability across platforms",
+        description="Auto-generates random length usernames (3-6 letters)",
         color=discord.Color.gold()
     )
     
     # Single Check Commands
-    embed.add_field(name="🔍 Single Checks", value="Check once and get results", inline=False)
-    embed.add_field(name=".gen [length]", value="Discord usernames", inline=False)
-    embed.add_field(name=".igen [length]", value="Instagram usernames", inline=False)
-    embed.add_field(name=".tgen [length]", value="TikTok usernames", inline=False)
-    embed.add_field(name=".sgen [length]", value="Snapchat usernames", inline=False)
-    embed.add_field(name=".rgen [length]", value="Roblox usernames", inline=False)
-    embed.add_field(name=".fgen [length]", value="Facebook usernames", inline=False)
+    embed.add_field(name="🔍 Single Checks (No Parameters)", value="Auto-generates random 3-6 letter usernames", inline=False)
+    embed.add_field(name=".gen", value="Discord usernames", inline=False)
+    embed.add_field(name=".igen", value="Instagram usernames", inline=False)
+    embed.add_field(name=".tgen", value="TikTok usernames", inline=False)
+    embed.add_field(name=".sgen", value="Snapchat usernames", inline=False)
+    embed.add_field(name=".rgen", value="Roblox usernames", inline=False)
+    embed.add_field(name=".fgen", value="Facebook usernames", inline=False)
     
     # Continuous Generation
     embed.add_field(name="🚀 Continuous Generation", value="Keep checking until you stop", inline=False)
-    embed.add_field(name=".genstart <platform> [length]", value="Start continuous generation", inline=False)
+    embed.add_field(name=".genstart <platform>", value="Start continuous generation (auto random length 3-6)", inline=False)
     embed.add_field(name=".genstop", value="Stop continuous generation", inline=False)
     
-    embed.set_footer(text="[length] = 3-6 characters (optional, defaults to random)")
+    embed.add_field(name="📄 Platforms", value="discord, instagram, tiktok, snapchat, roblox, facebook", inline=False)
+    embed.set_footer(text="All commands auto-generate random length usernames (3-6 letters)")
     
     await ctx.send(embed=embed)
 
