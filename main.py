@@ -36,6 +36,40 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 # Global variable to track if generation is running
 generation_running = False
 
+# Temp Email Websites
+TEMP_EMAIL_PROVIDERS = {
+    'tempmail': {
+        'name': 'TempMail',
+        'url': 'https://tempmail.com',
+        'api': 'https://tempmail.com/api/v1/generate',
+        'inbox': 'https://tempmail.com/api/v1/get'
+    },
+    '10minutemail': {
+        'name': '10 Minute Mail',
+        'url': 'https://10minutemail.com',
+        'api': 'https://10minutemail.com/api/v1/generate',
+        'inbox': 'https://10minutemail.com/api/v1/get'
+    },
+    'mailinator': {
+        'name': 'Mailinator',
+        'url': 'https://www.mailinator.com',
+        'api': 'https://api.mailinator.com/v1/generate',
+        'inbox': 'https://api.mailinator.com/v1/get'
+    },
+    'guerrillamail': {
+        'name': 'Guerrilla Mail',
+        'url': 'https://www.guerrillamail.com',
+        'api': 'https://api.guerrillamail.com/ajax.php?f=get_email_address',
+        'inbox': 'https://api.guerrillamail.com/ajax.php?f=check_email'
+    },
+    'yopmail': {
+        'name': 'YOPmail',
+        'url': 'https://yopmail.com',
+        'api': 'https://yopmail.com/api/generate',
+        'inbox': 'https://yopmail.com/api/inbox'
+    }
+}
+
 class UsernameChecker:
     """Handles username generation and checking across platforms"""
     
@@ -141,7 +175,90 @@ class UsernameChecker:
         except:
             return None
 
+class TempEmailGenerator:
+    """Handles temporary email generation and inbox checking"""
+    
+    def __init__(self, session):
+        self.session = session
+    
+    async def generate_tempmail(self, provider='tempmail'):
+        """Generate a temporary email"""
+        try:
+            if provider == 'tempmail':
+                async with self.session.get(
+                    'https://api.tempmail.com/new',
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        return {
+                            'email': data.get('email'),
+                            'token': data.get('token'),
+                            'provider': provider
+                        }
+            
+            elif provider == '10minutemail':
+                async with self.session.get(
+                    'https://10minutemail.com/api/v1/address',
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        return {
+                            'email': data,
+                            'provider': provider
+                        }
+            
+            elif provider == 'guerrillamail':
+                async with self.session.get(
+                    'https://api.guerrillamail.com/ajax.php?f=get_email_address',
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        return {
+                            'email': data.get('email_address'),
+                            'sid': data.get('sid_token'),
+                            'provider': provider
+                        }
+        except Exception as e:
+            logger.error(f"Error generating temp email: {e}")
+        
+        return None
+    
+    async def get_inbox(self, email, provider='tempmail', token=None):
+        """Get emails from temp email inbox"""
+        try:
+            if provider == 'tempmail':
+                async with self.session.get(
+                    f'https://api.tempmail.com/messages?email={email}',
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+            
+            elif provider == '10minutemail':
+                async with self.session.get(
+                    f'https://10minutemail.com/api/v1/messages?email={email}',
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+            
+            elif provider == 'guerrillamail':
+                async with self.session.get(
+                    f'https://api.guerrillamail.com/ajax.php?f=check_email&email_addr={email}',
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+        except Exception as e:
+            logger.error(f"Error getting inbox: {e}")
+        
+        return None
+
 checker = UsernameChecker()
+temp_email_gen = None
 
 async def check_usernames(platform, ctx=None):
     """Check usernames with proper rate limiting - AUTO generates random length 3-6"""
@@ -219,11 +336,143 @@ async def check_usernames(platform, ctx=None):
 @bot.event
 async def on_ready():
     """Bot ready event"""
+    global temp_email_gen
     await checker.init_session()
+    temp_email_gen = TempEmailGenerator(checker.session)
     logger.info(f'✅ Bot logged in as {bot.user}')
     print(f'✅ Bot is running!')
 
-# GENSTART COMMAND - Continuous Generation (Auto generates all lengths 3-6)
+# ============ EMAIL GENERATION COMMANDS ============
+
+@bot.command(name='emailgen')
+async def email_gen(ctx, provider='tempmail'):
+    """Generate a temporary email: .emailgen [provider]
+    Providers: tempmail, 10minutemail, guerrillamail"""
+    
+    if provider.lower() not in TEMP_EMAIL_PROVIDERS:
+        providers_list = ', '.join(TEMP_EMAIL_PROVIDERS.keys())
+        await ctx.send(f"❌ Invalid provider! Available: {providers_list}")
+        return
+    
+    async with ctx.typing():
+        temp_mail = await temp_email_gen.generate_tempmail(provider.lower())
+        
+        if not temp_mail:
+            await ctx.send("❌ Failed to generate temporary email. Try another provider.")
+            return
+        
+        email = temp_mail.get('email')
+        provider_info = TEMP_EMAIL_PROVIDERS[provider.lower()]
+        
+        embed = discord.Embed(
+            title=f"📧 Temporary Email Generated",
+            color=discord.Color.green()
+        )
+        embed.add_field(name="📧 Email Address", value=f"```{email}```", inline=False)
+        embed.add_field(name="🌐 Provider", value=provider_info['name'], inline=True)
+        embed.add_field(name="🔗 Website", value=provider_info['url'], inline=True)
+        embed.add_field(name="💬 Next Step", value=f"Use `.emailinbox {email}` to check messages", inline=False)
+        embed.set_footer(text="Email expires after 10-15 minutes")
+        
+        await ctx.send(embed=embed)
+
+@bot.command(name='emailinbox')
+async def email_inbox(ctx, email, provider='tempmail'):
+    """Check temporary email inbox: .emailinbox <email> [provider]
+    Shows all received messages in real-time"""
+    
+    if provider.lower() not in TEMP_EMAIL_PROVIDERS:
+        providers_list = ', '.join(TEMP_EMAIL_PROVIDERS.keys())
+        await ctx.send(f"❌ Invalid provider! Available: {providers_list}")
+        return
+    
+    async with ctx.typing():
+        inbox = await temp_email_gen.get_inbox(email, provider.lower())
+        
+        if not inbox:
+            embed = discord.Embed(
+                title=f"📧 Inbox - {email}",
+                description="🚿 No messages yet. Checking again in 10 seconds...",
+                color=discord.Color.orange()
+            )
+            msg = await ctx.send(embed=embed)
+            
+            # Check again after 10 seconds
+            await asyncio.sleep(10)
+            inbox = await temp_email_gen.get_inbox(email, provider.lower())
+        
+        if not inbox or len(inbox) == 0:
+            embed = discord.Embed(
+                title=f"📧 Inbox - {email}",
+                description="❌ Inbox is empty",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        # Build messages display
+        messages_text = ""
+        for i, msg_data in enumerate(inbox[:10], 1):  # Show up to 10 messages
+            sender = msg_data.get('from', 'Unknown')
+            subject = msg_data.get('subject', 'No Subject')
+            preview = msg_data.get('body_preview', msg_data.get('body', 'No preview'))[:100]
+            time_received = msg_data.get('time', 'Unknown time')
+            
+            messages_text += f"""
+**{i}. From:** {sender}
+**Subject:** {subject}
+**Preview:** {preview}...
+**Time:** {time_received}
+
+"""
+        
+        embed = discord.Embed(
+            title=f"📧 Live Inbox - {email}",
+            description=messages_text or "No messages",
+            color=discord.Color.blue()
+        )
+        embed.add_field(
+            name="💬 Total Messages",
+            value=f"{len(inbox)} message(s)",
+            inline=True
+        )
+        embed.add_field(
+            name="🔄 Refresh",
+            value=f"Use `.emailinbox {email}` to refresh",
+            inline=True
+        )
+        embed.set_footer(text="Messages auto-refresh every 10 seconds")
+        
+        await ctx.send(embed=embed)
+
+@bot.command(name='emailcheck')
+async def email_check(ctx):
+    """Show all available email providers"""
+    
+    embed = discord.Embed(
+        title="📧 Available Temp Email Providers",
+        description="Choose a provider to generate temporary emails",
+        color=discord.Color.gold()
+    )
+    
+    for key, provider in TEMP_EMAIL_PROVIDERS.items():
+        embed.add_field(
+            name=f"🌐 {provider['name']}",
+            value=f"Website: {provider['url']}",
+            inline=False
+        )
+    
+    embed.add_field(
+        name="📄 Usage",
+        value="`.emailgen <provider>` - Generate email\n`.emailinbox <email>` - Check messages",
+        inline=False
+    )
+    embed.set_footer(text="Emails expire after 10-15 minutes")
+    
+    await ctx.send(embed=embed)
+
+# ============ GENSTART COMMAND - Continuous Generation ============
+
 @bot.command(name='genstart')
 async def gen_start(ctx, platform):
     """Start continuous username generation: .genstart <platform>
@@ -305,7 +554,8 @@ async def gen_stop(ctx):
     )
     await ctx.send(embed=embed)
 
-# SINGLE CHECK COMMANDS - Auto generates random 3-6 length
+# ============ SINGLE CHECK COMMANDS ============
+
 @bot.command(name='gen')
 async def discord_gen(ctx):
     """Check Discord usernames: .gen
@@ -444,13 +694,13 @@ async def facebook_gen(ctx):
 async def help_command(ctx):
     """Show all available commands"""
     embed = discord.Embed(
-        title="📋 Username Checker Bot Commands",
-        description="Auto-generates random length usernames (3-6 letters)",
+        title="📋 Bot Commands",
+        description="Username checker & Temporary email generator",
         color=discord.Color.gold()
     )
     
-    # Single Check Commands
-    embed.add_field(name="🔍 Single Checks (No Parameters)", value="Auto-generates random 3-6 letter usernames", inline=False)
+    # Username Commands
+    embed.add_field(name="🔍 Username Checks (No Parameters)", value="Auto-generates random 3-6 letter usernames", inline=False)
     embed.add_field(name=".gen", value="Discord usernames", inline=False)
     embed.add_field(name=".igen", value="Instagram usernames", inline=False)
     embed.add_field(name=".tgen", value="TikTok usernames", inline=False)
@@ -463,8 +713,13 @@ async def help_command(ctx):
     embed.add_field(name=".genstart <platform>", value="Start continuous generation (auto random length 3-6)", inline=False)
     embed.add_field(name=".genstop", value="Stop continuous generation", inline=False)
     
-    embed.add_field(name="📄 Platforms", value="discord, instagram, tiktok, snapchat, roblox, facebook", inline=False)
-    embed.set_footer(text="All commands auto-generate random length usernames (3-6 letters)")
+    # Email Commands
+    embed.add_field(name="📧 Temporary Email", value="Generate & check temp emails", inline=False)
+    embed.add_field(name=".emailgen [provider]", value="Generate temp email (default: tempmail)", inline=False)
+    embed.add_field(name=".emailinbox <email> [provider]", value="Check temp email inbox", inline=False)
+    embed.add_field(name=".emailcheck", value="Show all email providers", inline=False)
+    
+    embed.set_footer(text="All commands auto-generate random values where needed")
     
     await ctx.send(embed=embed)
 
