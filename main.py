@@ -39,31 +39,26 @@ generation_running = False
 # Temp Email Websites
 TEMP_EMAIL_PROVIDERS = {
     'tempmail': {
-        'name': 'TempMail',
         'url': 'https://tempmail.com',
-        'api': 'https://tempmail.com/api/v1/generate',
-        'inbox': 'https://tempmail.com/api/v1/get'
+        'api': 'https://api.tempmail.com/new',
+        'inbox': 'https://api.tempmail.com/messages'
     },
     '10minutemail': {
-        'name': '10 Minute Mail',
         'url': 'https://10minutemail.com',
-        'api': 'https://10minutemail.com/api/v1/generate',
-        'inbox': 'https://10minutemail.com/api/v1/get'
+        'api': 'https://10minutemail.com/api/v1/address',
+        'inbox': 'https://10minutemail.com/api/v1/messages'
     },
     'mailinator': {
-        'name': 'Mailinator',
         'url': 'https://www.mailinator.com',
         'api': 'https://api.mailinator.com/v1/generate',
         'inbox': 'https://api.mailinator.com/v1/get'
     },
     'guerrillamail': {
-        'name': 'Guerrilla Mail',
         'url': 'https://www.guerrillamail.com',
         'api': 'https://api.guerrillamail.com/ajax.php?f=get_email_address',
         'inbox': 'https://api.guerrillamail.com/ajax.php?f=check_email'
     },
     'yopmail': {
-        'name': 'YOPmail',
         'url': 'https://yopmail.com',
         'api': 'https://yopmail.com/api/generate',
         'inbox': 'https://yopmail.com/api/inbox'
@@ -350,28 +345,24 @@ async def email_gen(ctx, provider='tempmail'):
     Providers: tempmail, 10minutemail, guerrillamail"""
     
     if provider.lower() not in TEMP_EMAIL_PROVIDERS:
-        providers_list = ', '.join(TEMP_EMAIL_PROVIDERS.keys())
-        await ctx.send(f"❌ Invalid provider! Available: {providers_list}")
+        await ctx.send("❌ Invalid provider!")
         return
     
     async with ctx.typing():
         temp_mail = await temp_email_gen.generate_tempmail(provider.lower())
         
         if not temp_mail:
-            await ctx.send("❌ Failed to generate temporary email. Try another provider.")
+            await ctx.send("❌ Failed to generate temporary email. Try again!")
             return
         
         email = temp_mail.get('email')
-        provider_info = TEMP_EMAIL_PROVIDERS[provider.lower()]
         
         embed = discord.Embed(
-            title=f"📧 Temporary Email Generated",
+            title=f"📧 Email Generated",
             color=discord.Color.green()
         )
-        embed.add_field(name="📧 Email Address", value=f"```{email}```", inline=False)
-        embed.add_field(name="🌐 Provider", value=provider_info['name'], inline=True)
-        embed.add_field(name="🔗 Website", value=provider_info['url'], inline=True)
-        embed.add_field(name="💬 Next Step", value=f"Use `.emailinbox {email}` to check messages", inline=False)
+        embed.add_field(name="Email Address", value=f"```{email}```", inline=False)
+        embed.add_field(name="Next Step", value=f"Use `.emailinbox {email}` to check messages", inline=False)
         embed.set_footer(text="Email expires after 10-15 minutes")
         
         await ctx.send(embed=embed)
@@ -382,8 +373,7 @@ async def email_inbox(ctx, email, provider='tempmail'):
     Shows all received messages in real-time"""
     
     if provider.lower() not in TEMP_EMAIL_PROVIDERS:
-        providers_list = ', '.join(TEMP_EMAIL_PROVIDERS.keys())
-        await ctx.send(f"❌ Invalid provider! Available: {providers_list}")
+        await ctx.send("❌ Invalid provider!")
         return
     
     async with ctx.typing():
@@ -432,12 +422,12 @@ async def email_inbox(ctx, email, provider='tempmail'):
             color=discord.Color.blue()
         )
         embed.add_field(
-            name="💬 Total Messages",
+            name="Total Messages",
             value=f"{len(inbox)} message(s)",
             inline=True
         )
         embed.add_field(
-            name="🔄 Refresh",
+            name="Refresh",
             value=f"Use `.emailinbox {email}` to refresh",
             inline=True
         )
@@ -449,21 +439,16 @@ async def email_inbox(ctx, email, provider='tempmail'):
 async def email_check(ctx):
     """Show all available email providers"""
     
+    providers_list = ', '.join(TEMP_EMAIL_PROVIDERS.keys())
+    
     embed = discord.Embed(
-        title="📧 Available Temp Email Providers",
-        description="Choose a provider to generate temporary emails",
+        title="📧 Available Providers",
+        description=f"Providers: {providers_list}",
         color=discord.Color.gold()
     )
     
-    for key, provider in TEMP_EMAIL_PROVIDERS.items():
-        embed.add_field(
-            name=f"🌐 {provider['name']}",
-            value=f"Website: {provider['url']}",
-            inline=False
-        )
-    
     embed.add_field(
-        name="📄 Usage",
+        name="Usage",
         value="`.emailgen <provider>` - Generate email\n`.emailinbox <email>` - Check messages",
         inline=False
     )
@@ -494,8 +479,6 @@ async def gen_start(ctx, platform):
         description="Generating random usernames (3-6 letters) continuously...",
         color=discord.Color.green()
     )
-    embed.add_field(name="Platform", value=platform.upper(), inline=True)
-    embed.add_field(name="Length", value="Random (3-6 letters)", inline=True)
     embed.set_footer(text="Use .genstop to stop generation")
     
     await ctx.send(embed=embed)
@@ -518,13 +501,12 @@ async def gen_start(ctx, platform):
             
             # Send results every batch
             embed = discord.Embed(
-                title=f"✅ Batch #{count} - {platform.upper()} ({length} letters)",
+                title=f"✅ Batch #{count}",
                 color=discord.Color.green()
             )
-            embed.add_field(name="🟢 Available Usernames", value=f"```{available_list}```", inline=False)
-            embed.add_field(name="📊 Batch Stats", value=f"Available: {len(results['available'])}/{GEN_COUNT}", inline=True)
-            embed.add_field(name="📈 Total Found", value=f"{check_count} usernames", inline=True)
-            embed.set_footer(text=f"Saved: {os.path.basename(filename)}")
+            embed.add_field(name="Available", value=f"```{available_list}```", inline=False)
+            embed.add_field(name="Batch Stats", value=f"{len(results['available'])}/{GEN_COUNT}", inline=True)
+            embed.add_field(name="Total Found", value=f"{check_count}", inline=True)
             
             await ctx.send(embed=embed)
             
@@ -549,7 +531,6 @@ async def gen_stop(ctx):
     generation_running = False
     embed = discord.Embed(
         title="⛔ Generation Stopped",
-        description="Continuous username generation has been stopped.",
         color=discord.Color.red()
     )
     await ctx.send(embed=embed)
@@ -570,13 +551,12 @@ async def discord_gen(ctx):
         taken_list = '\n'.join(results['taken'][:3]) or "None"
         
         embed = discord.Embed(
-            title=f"✅ Discord Username Check Complete ({length} letters)",
+            title=f"✅ Check Complete",
             color=discord.Color.green()
         )
-        embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
-        embed.add_field(name="🔴 Taken", value=f"```{taken_list}```", inline=False)
-        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/{GEN_COUNT}", inline=True)
-        embed.set_footer(text=f"Saved to: {os.path.basename(filename)}")
+        embed.add_field(name="Available", value=f"```{available_list}```", inline=False)
+        embed.add_field(name="Taken", value=f"```{taken_list}```", inline=False)
+        embed.add_field(name="Summary", value=f"{len(results['available'])}/{GEN_COUNT}", inline=True)
         
         await ctx.send(embed=embed)
 
@@ -593,12 +573,11 @@ async def instagram_gen(ctx):
         available_list = '\n'.join(results['available']) or "None"
         
         embed = discord.Embed(
-            title=f"📸 Instagram Username Check Complete ({length} letters)",
+            title=f"✅ Check Complete",
             color=discord.Color.from_rgb(229, 45, 168)
         )
-        embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
-        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/{GEN_COUNT}", inline=True)
-        embed.set_footer(text=f"Saved to: {os.path.basename(filename)}")
+        embed.add_field(name="Available", value=f"```{available_list}```", inline=False)
+        embed.add_field(name="Summary", value=f"{len(results['available'])}/{GEN_COUNT}", inline=True)
         
         await ctx.send(embed=embed)
 
@@ -615,12 +594,11 @@ async def tiktok_gen(ctx):
         available_list = '\n'.join(results['available']) or "None"
         
         embed = discord.Embed(
-            title=f"🎵 TikTok Username Check Complete ({length} letters)",
+            title=f"✅ Check Complete",
             color=discord.Color.from_rgb(0, 0, 0)
         )
-        embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
-        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/{GEN_COUNT}", inline=True)
-        embed.set_footer(text=f"Saved to: {os.path.basename(filename)}")
+        embed.add_field(name="Available", value=f"```{available_list}```", inline=False)
+        embed.add_field(name="Summary", value=f"{len(results['available'])}/{GEN_COUNT}", inline=True)
         
         await ctx.send(embed=embed)
 
@@ -637,12 +615,11 @@ async def snapchat_gen(ctx):
         available_list = '\n'.join(results['available']) or "None"
         
         embed = discord.Embed(
-            title=f"👻 Snapchat Username Check Complete ({length} letters)",
+            title=f"✅ Check Complete",
             color=discord.Color.from_rgb(255, 252, 0)
         )
-        embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
-        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/{GEN_COUNT}", inline=True)
-        embed.set_footer(text=f"Saved to: {os.path.basename(filename)}")
+        embed.add_field(name="Available", value=f"```{available_list}```", inline=False)
+        embed.add_field(name="Summary", value=f"{len(results['available'])}/{GEN_COUNT}", inline=True)
         
         await ctx.send(embed=embed)
 
@@ -659,12 +636,11 @@ async def roblox_gen(ctx):
         available_list = '\n'.join(results['available']) or "None"
         
         embed = discord.Embed(
-            title=f"🎮 Roblox Username Check Complete ({length} letters)",
+            title=f"✅ Check Complete",
             color=discord.Color.from_rgb(235, 24, 24)
         )
-        embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
-        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/{GEN_COUNT}", inline=True)
-        embed.set_footer(text=f"Saved to: {os.path.basename(filename)}")
+        embed.add_field(name="Available", value=f"```{available_list}```", inline=False)
+        embed.add_field(name="Summary", value=f"{len(results['available'])}/{GEN_COUNT}", inline=True)
         
         await ctx.send(embed=embed)
 
@@ -681,12 +657,11 @@ async def facebook_gen(ctx):
         available_list = '\n'.join(results['available']) or "None"
         
         embed = discord.Embed(
-            title=f"f Facebook Username Check Complete ({length} letters)",
+            title=f"✅ Check Complete",
             color=discord.Color.from_rgb(59, 89, 152)
         )
-        embed.add_field(name="🟢 Available", value=f"```{available_list}```", inline=False)
-        embed.add_field(name="📊 Summary", value=f"Available: {len(results['available'])}/{GEN_COUNT}", inline=True)
-        embed.set_footer(text=f"Saved to: {os.path.basename(filename)}")
+        embed.add_field(name="Available", value=f"```{available_list}```", inline=False)
+        embed.add_field(name="Summary", value=f"{len(results['available'])}/{GEN_COUNT}", inline=True)
         
         await ctx.send(embed=embed)
 
@@ -694,32 +669,19 @@ async def facebook_gen(ctx):
 async def help_command(ctx):
     """Show all available commands"""
     embed = discord.Embed(
-        title="📋 Bot Commands",
-        description="Username checker & Temporary email generator",
+        title="📋 Commands",
+        description="Username checker & Email generator",
         color=discord.Color.gold()
     )
     
     # Username Commands
-    embed.add_field(name="🔍 Username Checks (No Parameters)", value="Auto-generates random 3-6 letter usernames", inline=False)
-    embed.add_field(name=".gen", value="Discord usernames", inline=False)
-    embed.add_field(name=".igen", value="Instagram usernames", inline=False)
-    embed.add_field(name=".tgen", value="TikTok usernames", inline=False)
-    embed.add_field(name=".sgen", value="Snapchat usernames", inline=False)
-    embed.add_field(name=".rgen", value="Roblox usernames", inline=False)
-    embed.add_field(name=".fgen", value="Facebook usernames", inline=False)
-    
-    # Continuous Generation
-    embed.add_field(name="🚀 Continuous Generation", value="Keep checking until you stop", inline=False)
-    embed.add_field(name=".genstart <platform>", value="Start continuous generation (auto random length 3-6)", inline=False)
-    embed.add_field(name=".genstop", value="Stop continuous generation", inline=False)
+    embed.add_field(name="Username Checks", value="Auto-generates 3-6 letter usernames", inline=False)
+    embed.add_field(name=".gen, .igen, .rgen, .tgen, .sgen, .fgen", value="Single checks", inline=False)
+    embed.add_field(name=".genstart <platform>, .genstop", value="Continuous generation", inline=False)
     
     # Email Commands
-    embed.add_field(name="📧 Temporary Email", value="Generate & check temp emails", inline=False)
-    embed.add_field(name=".emailgen [provider]", value="Generate temp email (default: tempmail)", inline=False)
-    embed.add_field(name=".emailinbox <email> [provider]", value="Check temp email inbox", inline=False)
-    embed.add_field(name=".emailcheck", value="Show all email providers", inline=False)
-    
-    embed.set_footer(text="All commands auto-generate random values where needed")
+    embed.add_field(name="Email Generator", value="Generate & check emails", inline=False)
+    embed.add_field(name=".emailgen, .emailinbox, .emailcheck", value="Email commands", inline=False)
     
     await ctx.send(embed=embed)
 
